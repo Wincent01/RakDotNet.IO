@@ -4,6 +4,8 @@
 #define UNITY
 #endif
 
+#define UNITY
+
 using System;
 using System.IO;
 using System.Linq;
@@ -12,11 +14,7 @@ using System.Threading.Tasks;
 
 namespace RakDotNet.IO
 {
-    #if !UNITY
-    public class BitWriter : IDisposable, IAsyncDisposable
-    #else
     public class BitWriter : IDisposable
-    #endif
     {
         private readonly Stream _stream;
         private readonly bool _leaveOpen;
@@ -79,27 +77,9 @@ namespace RakDotNet.IO
                 _disposed = true;
             }
         }
-        
-        #if !UNITY
-        public async ValueTask DisposeAsync(bool disposing)
-        {
-            if (!_disposed)
-            {
-                if (disposing && !_leaveOpen)
-                    await _stream.FlushAsync();
-                else
-                    await _stream.DisposeAsync();
-
-                _disposed = true;
-            }
-        }
-        #endif
 
         public void Dispose() => Dispose(true);
 
-        #if !UNITY
-        public ValueTask DisposeAsync() => DisposeAsync(true);
-        #endif
         
         public virtual void Close() => Dispose(true);
 

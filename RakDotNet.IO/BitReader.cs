@@ -4,6 +4,8 @@
 #define UNITY
 #endif
 
+#define UNITY
+
 using System;
 using System.IO;
 using System.Linq;
@@ -12,11 +14,7 @@ using System.Threading.Tasks;
 
 namespace RakDotNet.IO
 {
-    #if !UNITY
-    public class BitReader : IDisposable, IAsyncDisposable
-    #else
     public class BitReader : IDisposable
-    #endif
     {
         private readonly Stream _stream;
         private readonly bool _leaveOpen;
@@ -79,26 +77,9 @@ namespace RakDotNet.IO
                 _disposed = true;
             }
         }
-        
-        #if !UNITY
-        public async ValueTask DisposeAsync(bool disposing)
-        {
-            if (!_disposed)
-            {
-                if (disposing && !_leaveOpen)
-                    await _stream.DisposeAsync();
-
-                _disposed = true;
-            }
-        }
-        #endif
 
         public void Dispose() => Dispose(true);
 
-        #if !UNITY
-        public ValueTask DisposeAsync() => DisposeAsync(true);
-        #endif
-        
         public virtual void Close() => Dispose(true);
 
         public virtual bool ReadBit()
@@ -240,17 +221,20 @@ namespace RakDotNet.IO
             #if !UNITY
             return MemoryMarshal.Read<T>(buf);
             #else
-            var array = new byte[bufSize];
-            
-            var ptr = Marshal.AllocHGlobal(bufSize);
-            
-            Marshal.Copy(array, 0, ptr, bufSize);
-            
-            var s = (T) Marshal.PtrToStructure(ptr, typeof(T));
-            
-            Marshal.FreeHGlobal(ptr);
+            T result;
 
-            return s;
+            var handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
+
+            try
+            {
+                result = Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject());
+            }
+            finally
+            {
+                handle.Free();
+            }
+
+            return result;
             #endif
         }
 

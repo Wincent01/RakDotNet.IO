@@ -11,6 +11,7 @@
     <PackageLicenseUrl>https://github.com/Wincent01/RakDotNet.IO/blob/master/LICENSE</PackageLicenseUrl>
     <RepositoryUrl>https://github.com/Wincent01/RakDotNet.IO</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
 </Project>
