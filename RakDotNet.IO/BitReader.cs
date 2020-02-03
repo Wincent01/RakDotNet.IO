@@ -1,10 +1,22 @@
-﻿using System;
+﻿#if ENABLE_MONO
+#define UNITY
+#elif ENABLE_IL2CPP
+#define UNITY
+#endif
+
+using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace RakDotNet.IO
 {
+    #if !UNITY
+    public class BitReader : IDisposable, IAsyncDisposable
+    #else
     public class BitReader : IDisposable
+    #endif
     {
         private readonly Stream _stream;
         private readonly bool _leaveOpen;
@@ -67,9 +79,26 @@ namespace RakDotNet.IO
                 _disposed = true;
             }
         }
+        
+        #if !UNITY
+        public async ValueTask DisposeAsync(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing && !_leaveOpen)
+                    await _stream.DisposeAsync();
+
+                _disposed = true;
+            }
+        }
+        #endif
 
         public void Dispose() => Dispose(true);
 
+        #if !UNITY
+        public ValueTask DisposeAsync() => DisposeAsync(true);
+        #endif
+        
         public virtual void Close() => Dispose(true);
 
         public virtual bool ReadBit()
@@ -86,7 +115,11 @@ namespace RakDotNet.IO
             }
         }
 
+        #if !UNITY
         public virtual int Read(Span<byte> buf, int bits)
+        #else
+        public virtual int Read(byte[] buf, int bits)
+        #endif
         {
             // offset in bits, in case we're not starting on the 8th (i = 7) bit
             var bitOffset = (byte)(_pos & 7);
@@ -104,21 +137,42 @@ namespace RakDotNet.IO
             lock (_lock)
             {
                 // alloc the read buf on stack
+                #if !UNITY
                 Span<byte> bytes = stackalloc byte[byteCount];
+                #else
+                var bytes = new byte[byteCount];
+                #endif
 
                 // read from the Stream to the buf on the stack
+                #if !UNITY
                 _stream.Read(bytes);
+                #else
+                for (var i = 0; i < byteCount; i++)
+                {
+                    bytes[i] = (byte) _stream.ReadByte();
+                }
+                #endif
 
                 // swap endianness in case we're not using same endianness as host
                 if ((_endianness != Endianness.LittleEndian && BitConverter.IsLittleEndian) ||
                     (_endianness != Endianness.BigEndian && !BitConverter.IsLittleEndian))
+                {
+                    #if !UNITY
                     bytes.Reverse();
+                    #else
+                    bytes = bytes.Reverse().ToArray();
+                    #endif
+                }
 
                 // check if we don't have to do complex bit level operations
                 if (bitOffset == 0 && (bits & 7) == 0)
                 {
                     // copy read bytes to output buffer
+                    #if !UNITY
                     bytes.CopyTo(buf);
+                    #else
+                    bytes.CopyTo(buf, 0);
+                    #endif
 
                     _pos += bits;
 
@@ -154,6 +208,7 @@ namespace RakDotNet.IO
             return bufSize;
         }
 
+        #if !UNITY
         public virtual int Read(byte[] buf, int index, int length, int bits)
         {
             if (bits > (length * 8))
@@ -167,16 +222,36 @@ namespace RakDotNet.IO
 
         public virtual int Read(byte[] buf, int index, int count)
             => Read(new Span<byte>(buf, index, count), count * 8);
+        #endif
 
         public virtual T Read<T>(int bits) where T : struct
         {
             var bufSize = (int)Math.Ceiling(bits / 8d);
+            
+            #if !UNITY
             Span<byte> buf = stackalloc byte[bufSize];
+            #else
+            var buf = new byte[bufSize];
+            #endif
 
             Read(buf, bits);
 
             // we "cast" the Span to our struct T
+            #if !UNITY
             return MemoryMarshal.Read<T>(buf);
+            #else
+            var array = new byte[bufSize];
+            
+            var ptr = Marshal.AllocHGlobal(bufSize);
+            
+            Marshal.Copy(array, 0, ptr, bufSize);
+            
+            var s = (T) Marshal.PtrToStructure(ptr, typeof(T));
+            
+            Marshal.FreeHGlobal(ptr);
+
+            return s;
+            #endif
         }
 
         public virtual T Read<T>() where T : struct

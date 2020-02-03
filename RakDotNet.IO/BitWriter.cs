@@ -1,10 +1,22 @@
-﻿using System;
+﻿#if ENABLE_MONO
+#define UNITY
+#elif ENABLE_IL2CPP
+#define UNITY
+#endif
+
+using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace RakDotNet.IO
 {
+    #if !UNITY
+    public class BitWriter : IDisposable, IAsyncDisposable
+    #else
     public class BitWriter : IDisposable
+    #endif
     {
         private readonly Stream _stream;
         private readonly bool _leaveOpen;
@@ -57,17 +69,38 @@ namespace RakDotNet.IO
 
         protected virtual void Dispose(bool disposing)
         {
-            if (disposing)
+            if (!_disposed)
             {
                 if (_leaveOpen)
                     _stream.Flush();
                 else
                     _stream.Close();
+
+                _disposed = true;
             }
         }
+        
+        #if !UNITY
+        public async ValueTask DisposeAsync(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing && !_leaveOpen)
+                    await _stream.FlushAsync();
+                else
+                    await _stream.DisposeAsync();
+
+                _disposed = true;
+            }
+        }
+        #endif
 
         public void Dispose() => Dispose(true);
 
+        #if !UNITY
+        public ValueTask DisposeAsync() => DisposeAsync(true);
+        #endif
+        
         public virtual void Close() => Dispose(true);
 
         public virtual void WriteBit(bool bit)
@@ -115,7 +148,11 @@ namespace RakDotNet.IO
             }
         }
 
+        #if !UNITY
         public virtual int Write(ReadOnlySpan<byte> buf, int bits)
+        #else
+        public virtual int Write(byte[] buf, int bits)
+        #endif
         {
             // offset in bits, in case we're not starting on the 8th (i = 7) bit
             var bitOffset = (byte)(_pos & 7);
@@ -135,7 +172,10 @@ namespace RakDotNet.IO
                 // check if we don't have to do complex bit level operations
                 if (bitOffset == 0 && (bits & 7) == 0)
                 {
-                    _stream.Write(buf);
+                    foreach (var b in buf)
+                    {
+                        _stream.WriteByte(b);
+                    }
 
                     _pos += bits;
 
@@ -143,10 +183,18 @@ namespace RakDotNet.IO
                 }
 
                 // allocate a buffer on the stack to write
+                #if !UNITY
                 Span<byte> bytes = stackalloc byte[byteCount];
+                #else
+                var bytes = new byte[byteCount];
+                #endif
 
                 // we might already have data in the stream
+                #if !UNITY
                 var readSize = _stream.Read(bytes);
+                #else
+                var readSize = _stream.Read(bytes, 0, bytes.Length);
+                #endif
 
                 // subtract the read bytes from the position so we can write them later
                 _stream.Position -= readSize;
@@ -174,10 +222,23 @@ namespace RakDotNet.IO
                 // swap endianness in case we're not using same endianness as host
                 if ((_endianness != Endianness.LittleEndian && BitConverter.IsLittleEndian) ||
                     (_endianness != Endianness.BigEndian && !BitConverter.IsLittleEndian))
+                {
+                    #if !UNITY
                     bytes.Reverse();
+                    #else
+                    bytes = bytes.Reverse().ToArray();
+                    #endif
+                }
 
                 // write the buffer
+                #if !UNITY
                 _stream.Write(bytes);
+                #else
+                foreach (var b in bytes)
+                {
+                    _stream.WriteByte(b);
+                }
+                #endif
 
                 // roll back the position in case we haven't used the last byte fully
                 _stream.Position -= (byteCount - bufSize);
@@ -186,6 +247,7 @@ namespace RakDotNet.IO
             return bufSize;
         }
 
+        #if !UNITY
         public virtual int Write(Span<byte> buf, int bits)
             => Write((ReadOnlySpan<byte>)buf, bits);
 
@@ -199,6 +261,7 @@ namespace RakDotNet.IO
 
             return Write(new ReadOnlySpan<byte>(buf, index, length), bits);
         }
+        #endif
 
         public virtual int Write<T>(T val, int bits) where T : struct
         {
@@ -209,7 +272,11 @@ namespace RakDotNet.IO
             Marshal.StructureToPtr<T>(val, ptr, false);
             Marshal.Copy(ptr, buf, 0, size);
 
+            #if !UNITY
             return Write(new ReadOnlySpan<byte>(buf), bits);
+            #else
+            return Write(buf, bits);
+            #endif
         }
 
         public virtual int Write<T>(T val) where T : struct
