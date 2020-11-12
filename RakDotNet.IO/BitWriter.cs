@@ -262,7 +262,7 @@ namespace RakDotNet.IO
         public virtual int Write<T>(T val) where T : struct
             => Write<T>(val, Marshal.SizeOf<T>() * 8);
 
-        public virtual void WriteSerializable(ISerializable serializable)
+        public virtual void Write(ISerializable serializable)
             => serializable.Serialize(this);
     }
 }
